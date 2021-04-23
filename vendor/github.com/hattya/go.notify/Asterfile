@@ -1,0 +1,33 @@
+var os = require('os');
+var path = require('path');
+var go_ = require('language/go');
+var go = go_.go;
+var rst2html = require('language/restructuredtext').rst2html;
+
+var title = 'Aster ☆ ' + path.basename(os.getwd());
+
+aster.title(title);
+
+// go
+aster.watch(/.+\.go$/, function(files) {
+  if (files.some(function(e) { return /[/\\](?:(?:notify|syscall)_windows|gntp)\.go$/.test(e); })) {
+    if (go.generate('./...')) return;
+  }
+  // go test for each package
+  var bad = go_.packagesOf(files).some(function(p) {
+    return go.test('-v', '-race', '-covermode', 'atomic', '-coverprofile', p + '/cover.out', p);
+  });
+  // combine coverage profiles
+  if (!bad) {
+    var out = go_.combine({ profile: 'cover.out', out: 'cover.all.out', packages: ['./...'] });
+    go.tool.cover('-func', out);
+    go.tool.cover('-html', out, '-o', 'coverage.html');
+    os.remove(out);
+  }
+  if (go.vet('-unsafeptr=false', './...')) return;
+});
+
+// rst
+aster.watch(/.+\.rst$/, function(files) {
+  files.some(function(rst) { return rst2html({ options: ['--strict'], src: rst }); });
+});
