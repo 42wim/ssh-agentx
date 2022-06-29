@@ -223,14 +223,14 @@ func (s *SSHAgent) SSHPrivateKeyToPGP(privateKey interface{}, name, email string
 
 	log.Println("adding public key for", uid.Id)
 
-	writer, err := armor.Encode(os.Stdout, openpgp.PublicKeyType, make(map[string]string))
+	writer, err := armor.Encode(os.Stderr, openpgp.PublicKeyType, make(map[string]string))
 	if err != nil {
 		return nil, fmt.Errorf("failed to encode armor writer: %w", err)
 	}
 
 	entity.Serialize(writer)
 	writer.Close()
-	fmt.Println()
+	fmt.Fprintln(os.Stderr, "\n")
 
 	return entity, nil
 }
