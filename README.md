@@ -4,11 +4,14 @@
 
 - [ssh-agentx](#ssh-agentx)
   - [Rationale](#rationale)
-  - [Requirements](#requirements)
-  - [Configuration ssh-agentx](#configuration-ssh-agentx)
+  - [Requirements gpg signing](#requirements-gpg-signing)
+  - [Requirements yubikey signing](#requirements-yubikey-signing)
+  - [Configuration ssh-agentx gpg](#configuration-ssh-agentx-gpg)
+  - [Configuration ssh-agentx yubikey](#configuration-ssh-agentx-yubikey)
   - [Configuration ssh-gpg-signer](#configuration-ssh-gpg-signer)
     - [Linux](#linux)
     - [Windows](#windows)
+  - [Configuration relic yubikey](#configuration-relic-yubikey)
   - [Signing commits after configuration](#signing-commits-after-configuration)
 
 <!-- /TOC -->
@@ -19,19 +22,54 @@ ssh-agentx is a ssh-agent replacement that abuses the SSH Extension protocol to 
 
 When running under windows it also supports WSL/Pageant/WSL2/Cygwin thanks to the great <https://github.com/buptczq/WinCryptSSHAgent> tool.
 
+It also now supports yubikey signing combined with relic on my fork - <https://github.com/42wim/relic/tree/sshtoken>
+
 ## Rationale
 
 Because the one thing I need PGP for is to sign git commits AND I'm working mostly on (shared) remote servers.  
 I don't want to setup a pgp/gpg configuration, keep a private key on the shared server and maintain it.  
 As there is already remotely running a ssh-agent containing ed25519/rsa keys that can be used to do the same thing over the `SSH_AUTH_SOCK` socket.
 
-## Requirements
+The rationale above is gone now we can use ssh keys to sign git commits.
+
+But this agent is being reused for code signing with yubikey over ssh, as code signing certificates now requires hardware tokens.  
+In this setup you have a laptop with the yubikey and a remote server containing your builds.  
+
+This setup is tested with a yubikey 5C
+
+## Requirements gpg signing
 
 If you only want to sign commits and never need to do `git log --show-signature` or `git verify-commit` you don't need gpg on the server.
 
 You do need my companion tool that git will talk to when signing commits. See <https://github.com/42wim/ssh-gpg-signer>
 
-## Configuration ssh-agentx
+## Requirements yubikey signing 
+
+This tool works together with my fork of relic on <https://github.com/42wim/relic/tree/sshtoken>  
+Go build this tool and see the section about relic configuration below.
+
+You'll need to build this and make a relic.yml configuration file, you can find an example below:  
+
+```yaml
+---
+tokens:
+  ssh9a:
+    type: ssh
+    slot: "9a"
+keys:
+  ssh9a:
+    token: ssh9a
+    x509certificate: yourcertificate.crt
+    slot: "9a"
+```
+
+After this you can use relic to sign an executable with
+
+`relic sign -k ssh9a -f yourfile.exe -o yourfile-signed.exe`
+
+So the setup is that on your laptop you're running ssh-agentx, you ssh into the server and there you run the relic command that will sign your executable using SSH extensions to talk to ssh-agentx which will talk to your yubikey plugged into your laptop.
+
+## Configuration ssh-agentx gpg
 
 If you want to run this agent instead of ssh-agent without the gpg signing stuff, you don't need a configuration.
 
@@ -73,6 +111,32 @@ You can now copy this in your github or gitea GPG settings.
 
 This concludes the agent side configuration, you also need the companion which will interact with git to sign it and send it to ssh-agentx.
 
+## Configuration ssh-agentx yubikey
+
+If you want to run this agent instead of ssh-agent without the yubikey signing stuff, you don't need a configuration.
+
+Otherwise create a file called `ssh-agentx.toml` you can put in the same directory as `ssh-agentx` when testing or put it in `~/.config/ssh-agentx/ssh-agentx.toml` or `%APPDATA%\ssh-agentx\ssh-agentx.toml` on windows.
+
+The `enable=true` is needed to actually use the yubikey signing part of ssh-agentx
+
+```toml
+[yubikey]
+enable=true #needed to enable yubikey signing
+enablelog=true #enable logging about yubikey operations
+defaultslot="9a" #define the default yubikey slot to use (9a is the default authentication one)
+```
+
+Below is an example of the logs when signing
+```
+2024/04/29 23:19:24 got ssh-yubi-setslot@42wim setting slot to 9a
+2024/04/29 23:19:24 got ssh-yubi-setslot@42wim new crypto signers set
+2024/04/29 23:19:24 got ssh-yubi-publickey@42wim request for publickey
+2024/04/29 23:19:24 got ssh-yubi-setslot@42wim setting slot to 9a but already set.
+2024/04/29 23:19:24 got ssh-yubi-publickey@42wim request for publickey
+2024/04/29 23:19:24 got ssh-yubi-setslot@42wim setting slot to 9a but already set.
+2024/04/29 23:19:24 got ssh-yubi-sign@42wim request to sign
+```
+
 ## Configuration ssh-gpg-signer
 
 ### Linux
@@ -96,6 +160,33 @@ Now change your global or local gitconfig to use ssh-gpg-signer and always sign 
 git config --global gpg.program c:\\users\\user\\bin\\ssh-gpg-signer
 git config --global commit.gpgSign true
 ```
+
+## Configuration relic yubikey
+
+This tool works together with my fork of relic on <https://github.com/42wim/relic/tree/sshtoken>  
+You'll need to build this and make a relic.yml configuration file, you can find an example below:  
+
+```yaml
+---
+tokens:
+  ssh9a:
+    type: ssh
+    slot: "9a"
+keys:
+  ssh9a:
+    token: ssh9a
+    x509certificate: yourcertificate.crt
+    slot: "9a"
+```
+
+After this you can use relic to sign an executable with
+
+`relic sign -k ssh9a -f yourfile.exe -o yourfile-signed.exe`
+
+Running relic for the first time will get you a PIN code popup to access your yubikey for signing.   
+Warning: Follow-up signing requests will use the cached pin (and won't need any interaction), so if you didn't specify a touch policy for your yubikey be sure to exit your SSH session, stop/kill ssh-agentx or just remove your yubikey when done signing.
+
+For clarification: the setup is that on your laptop you're running ssh-agentx, you ssh into the server and there you run the relic command that will sign your executable using SSH extensions to talk to ssh-agentx which will talk to your yubikey plugged into your laptop.
 
 ## Signing commits after configuration
 
